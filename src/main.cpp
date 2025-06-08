@@ -52,7 +52,14 @@ void setup()
     connectWiFi();
 
     client.setServer(MQTT_BROKER, MQTT_PORT);
-    client.setCallback(mqttCallback); 
+    client.setCallback(mqttCallback);  
+
+    if (!client.connected())
+    {
+        connectMQTT();
+    }
+
+    client.publish("/status", "ATIVO");
     
     trained_mlp_model(&mlp);
 }
@@ -63,7 +70,7 @@ void loop()
     humidity = getHumidity();
     luminosity = getLuminosity();
     gas_level = getGasLevel();
-    environment = getEnvironmentalConditions();
+    environment = 100*getEnvironmentalConditions();
 
     if(!stop) {
         if(flag500ms) {
@@ -72,10 +79,10 @@ void loop()
         }
         if(flag2s) {
             flag2s = false;
-            client.publish("/temperature", String(temperature).c_str());
-            client.publish("/humidity", String(humidity).c_str());
-            client.publish("/luminosity", String(luminosity).c_str());
-            client.publish("/gas", String(gas_level).c_str());
+            client.publish("/temperature", String(getTemperature()).c_str());
+            client.publish("/humidity", String(getHumidity()).c_str());
+            client.publish("/luminosity", String(getLuminosity()).c_str());
+            client.publish("/gas", String(getGasLevel()).c_str());
             client.publish("/environment", (environment >= 80.0)?"Propicio a vida":(environment <= 80.0 && environment >= 50.0)?"Moderado":"Hostil");
         }
     } 
@@ -96,14 +103,12 @@ void loop()
 }
 
 
-void IRAM_ATTR _500ms_timer() 
-{
-    flag500ms = true;
+void IRAM_ATTR _500ms_timer() {
+  flag500ms = true;
 }
 
-void IRAM_ATTR _2s_timer() 
-{
-    flag2s = true;
+void IRAM_ATTR _2s_timer() {
+  flag2s = true;
 }
 
 void IRAM_ATTR gpio_handler()
@@ -164,46 +169,60 @@ float getGasLevel(void)
 {
     int adc = analogRead(GAS);
 
-    return (adc * 3.3/4095);
+    return (adc * 100/4095);
 }
 
 float getEnvironmentalConditions()
 {
+    float xMin[4] = {5.793664, 20.596113, 9.414636, 160.582703};
+    float xMax[4] = {41.263657, 81.931076, 217.787125, 1086.463989};
     float X[4] = {temperature, humidity, gas_level, luminosity};
+
+    for (int j = 0; j < 4; j++) {
+		X[j] = (X[j] - xMin[j]) / (xMax[j] - xMin[j]);
+	}
+
     forward(&mlp, X);
     return mlp.output_layer_outputs[0];
 }
 
 void trained_mlp_model(MLP* mlp) {
-    float hidden_layer_weights[10][4+1] = {
-        {7.449806, 0.181137, -0.472057, 0.046361, -4.857895},
-        {-0.751881, 0.020071, 0.844090, 0.566661, 0.962430},
-        {0.505790, 0.455488, 0.106521, 0.293246, 0.760718},
-        {-0.001633, -3.484349, 0.277633, 1.023582, 1.005119},
-        {-0.140420, 0.863770, 0.368107, 0.089362, 0.914042},
-        {0.917888, 0.164913, 0.371158, -0.063512, 0.245188},
-        {0.919015, -0.197816, 0.266934, 3.914030, -0.640058},
-        {1.040644, 0.224041, 0.266534, 0.843221, 0.334403},
-        {2.815262, -0.603506, 0.403068, -1.971833, 0.741603},
-        {-1.032765, 0.608852, 1.006948, 0.453830, 0.756457}
+    mlp->input_layer_length = 4;
+    mlp->hidden_layer_length = 10;
+    mlp->output_layer_length = 1;
+
+    float hidden_layer_weights[mlp->hidden_layer_length][mlp->input_layer_length+1] = {
+        {-0.356924, 0.618732, 0.670465, -0.049423, 0.756215},
+        {4.530966, -0.387522, 0.228863, 2.415418, -1.799217},
+        {-0.117189, 0.276763, -0.317315, 0.320550, 0.900807},
+        {-0.181342, -0.323829, 0.522486, 0.247581, 1.433480},
+        {0.296701, 0.579473, -0.417481, -0.337416, 0.755573},
+        {1.013583, -0.288321, 0.303478, -3.889414, 2.723397},
+        {-0.254679, 0.667375, 0.640776, -0.064995, 0.631764},
+        {0.090767, 0.797015, 0.565025, -0.054839, 1.045970},
+        {-5.436245, -0.334825, 0.278600, 1.523835, 3.057570},
+        {-0.339902, 4.057984, -0.080821, -0.298409, -1.539995}
     };
-    float output_layer_weights[1][10+1] = {{-2.133985, -1.103779, -0.154775, -1.754287, -0.437949, 0.376591, 2.915985, 0.477521, 2.537050, -1.424970, -0.486438}};
+    float output_layer_weights[mlp->output_layer_length][mlp->hidden_layer_length+1] = {{-1.278173, 2.497450, -0.980342, -1.152672, -0.523618, 2.293101, -1.104998, -1.021778, 2.461326, 1.786587, -1.164977}};
 
-    mlp->hidden_layer_weights = (float**)malloc(10 * sizeof(float*));
+    mlp->hidden_layer_weights = (float**)malloc(mlp->hidden_layer_length * sizeof(float*));
 
-	for(int i = 0; i < 10; i++) {
-		mlp->hidden_layer_weights[i] = (float*)malloc((4 + 1) * sizeof(float));
-		for(int j = 0; j < (3 + 1); j++) {
+	for(int i = 0; i < mlp->hidden_layer_length; i++) {
+		mlp->hidden_layer_weights[i] = (float*)malloc((mlp->input_layer_length + 1) * sizeof(float));
+		for(int j = 0; j < (mlp->input_layer_length + 1); j++) {
 			mlp->hidden_layer_weights[i][j] = hidden_layer_weights[i][j];
 		}
 	}
 
 	mlp->output_layer_weights = (float**)malloc(1 * sizeof(float*));
 
-	for(int i = 0; i < 1; i++) {
-		mlp->output_layer_weights[i] = (float*)malloc((10 + 1) * sizeof(float));
-		for(int j = 0; j < (10 + 1); j++) {
+	for(int i = 0; i < mlp->output_layer_length; i++) {
+		mlp->output_layer_weights[i] = (float*)malloc((mlp->hidden_layer_length + 1) * sizeof(float));
+		for(int j = 0; j < (mlp->hidden_layer_length + 1); j++) {
 			mlp->output_layer_weights[i][j] = output_layer_weights[i][j];
 		}
 	}
+
+    mlp->hidden_layer_outputs = (float*) malloc(mlp->hidden_layer_length * sizeof(float));
+    mlp->output_layer_outputs = (float*) malloc(mlp->output_layer_length * sizeof(float));
 }
