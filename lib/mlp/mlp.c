@@ -137,7 +137,6 @@ void forward(MLP* mlp, float* X) {
 void backpropagation(MLP* mlp, float** X, float** Y, int samples) {
 	int epoch = 0;
 	float quad_error = 2*mlp->threshold;
-	float delta_hidden_layer[mlp->hidden_layer_length], delta_output_layer[mlp->output_layer_length];
 	
 	while(quad_error > mlp->threshold && epoch < mlp->max_epochs) {
 		quad_error = 0;
