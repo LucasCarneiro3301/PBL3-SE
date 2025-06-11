@@ -22,55 +22,56 @@ float getGasLevel(void);
 float getEnvironmentalConditions();
 void trained_mlp_model(MLP* mlp);
 
-MLP mlp;
+MLP mlp;    // Multilayer Perceptron
 float temperature, humidity, luminosity, gas_level, environment;
 
 void setup()
 {
     Serial.begin(BAUD_RATE);
 
-    led_setup();
-    btn_setup();
+    led_setup();    // LED de emergência
+    btn_setup();    // Botão de emergência
 
-    attachInterrupt(digitalPinToInterrupt(BTN), gpio_handler, FALLING);
+    attachInterrupt(digitalPinToInterrupt(BTN), gpio_handler, FALLING); // Interrupção para botão de emergência
 
-    timer500ms = timerBegin(0, 80, true);
+    // Timer de 500 ms
+    timer500ms = timerBegin(0, 80, true);   
 
     timerAttachInterrupt(timer500ms, &_500ms_timer, true);
     timerAlarmWrite(timer500ms, 5e5, true);
     timerAlarmEnable(timer500ms);
 
+    // Timer de 2 seg
     timer2s = timerBegin(1, 80, true);
 
     timerAttachInterrupt(timer2s, &_2s_timer, true);
     timerAlarmWrite(timer2s, 2e6, true);
     timerAlarmEnable(timer2s);
 
+    dht.setup(DHT, DHTesp::DHT11);  // Inicializa o DHT11
 
-    dht.setup(DHT, DHTesp::DHT11);
+    connectWiFi();                  // Se conecta ao Wi-Fi
 
-    connectWiFi();
-
-    client.setServer(MQTT_BROKER, MQTT_PORT);
-    client.setCallback(mqttCallback);  
+    client.setServer(MQTT_BROKER, MQTT_PORT);   // Configura a comunicação MQTT
+    client.setCallback(mqttCallback);           // Callback para mensagens MQTT
 
     if (!client.connected())
     {
-        connectMQTT();
+        connectMQTT();  // Se conecta ao Broker MQTT 
     }
 
     client.publish("/status", "ATIVO");
     
-    trained_mlp_model(&mlp);
+    trained_mlp_model(&mlp);    // Modela a MLP
 }
 
 void loop()
 {
-    temperature = getTemperature();
-    humidity = getHumidity();
-    luminosity = getLuminosity();
-    gas_level = getGasLevel();
-    environment = 100*getEnvironmentalConditions();
+    temperature = getTemperature();                 // Obtém a temperatura (°C)
+    humidity = getHumidity();                       // Obtém a umidade (%)
+    luminosity = getLuminosity();                   // Obtém a luminosidade (lux)
+    gas_level = getGasLevel();                      // Obtém o nível de gás
+    environment = 100*getEnvironmentalConditions(); // Obtém as condições ambientais atuais
 
     if(!stop) {
         if(flag500ms) {
@@ -83,6 +84,11 @@ void loop()
             client.publish("/humidity", String(getHumidity()).c_str());
             client.publish("/luminosity", String(getLuminosity()).c_str());
             client.publish("/gas", String(getGasLevel()).c_str());
+            /*
+                Propício à vida: Condições do ambiente acima de 80%
+                Moderado: Condições do ambiente entre 50% e 80%
+                Hostil: Condições do ambiente abaixo de 50%
+            */
             client.publish("/environment", (environment >= 80.0)?"Propicio a vida":(environment <= 80.0 && environment >= 50.0)?"Moderado":"Hostil");
         }
     } 
@@ -102,15 +108,17 @@ void loop()
     sys_delay_ms(100);
 }
 
-
+// Timer de 500 milissegundos
 void IRAM_ATTR _500ms_timer() {
   flag500ms = true;
 }
 
+// Timer de 2 seg
 void IRAM_ATTR _2s_timer() {
   flag2s = true;
 }
 
+// Interrupção para o botão de emergência
 void IRAM_ATTR gpio_handler()
 {
     unsigned long now = millis();
@@ -132,6 +140,7 @@ void IRAM_ATTR gpio_handler()
     }
 }
 
+// Temperatura (DHT11)
 float getTemperature(void)
 {
     TempAndHumidity data = dht.getTempAndHumidity();
@@ -142,6 +151,7 @@ float getTemperature(void)
         return -99.99;
 }
 
+// Umidade (DHT11)
 float getHumidity(void)
 {
     TempAndHumidity data = dht.getTempAndHumidity();
@@ -152,6 +162,7 @@ float getHumidity(void)
         return -99.99;
 }
 
+// Luminosidade (LDR)
 float getLuminosity(void)
 {
     uint16_t adc = analogRead(LDR);
@@ -165,6 +176,7 @@ float getLuminosity(void)
     return lux;
 }
 
+// Nível de gás (potenciômetro)
 float getGasLevel(void)
 {
     int adc = analogRead(GAS);
@@ -172,25 +184,30 @@ float getGasLevel(void)
     return (adc * 100/4095);
 }
 
+// Condições do ambiente
 float getEnvironmentalConditions()
 {
-    float xMin[4] = {5.793664, 20.596113, 9.414636, 160.582703};
-    float xMax[4] = {41.263657, 81.931076, 217.787125, 1086.463989};
-    float X[4] = {temperature, humidity, gas_level, luminosity};
+    float xMin[4] = {5.793664, 20.596113, 9.414636, 160.582703};        // Valores mínimos de entrada no dataset
+    float xMax[4] = {41.263657, 81.931076, 217.787125, 1086.463989};    // Valores máximos de entrada no dataset
+    float X[4] = {temperature, humidity, gas_level, luminosity};        // Entrada atual
 
+    // Normalização dos dados
     for (int j = 0; j < 4; j++) {
 		X[j] = (X[j] - xMin[j]) / (xMax[j] - xMin[j]);
 	}
 
+    // Obtém a saída
     forward(&mlp, X);
     return mlp.output_layer_outputs[0];
 }
 
+// Modelo de MLP treinado
 void trained_mlp_model(MLP* mlp) {
-    mlp->input_layer_length = 4;
-    mlp->hidden_layer_length = 10;
-    mlp->output_layer_length = 1;
+    mlp->input_layer_length = 4;    // 4 entradas
+    mlp->hidden_layer_length = 10;  // 10 neurônios na camada escondida
+    mlp->output_layer_length = 1;   // 1 neurônio de saída
 
+    // Pesos da camada escondida obtidos no treinamento
     float hidden_layer_weights[mlp->hidden_layer_length][mlp->input_layer_length+1] = {
         {-0.356924, 0.618732, 0.670465, -0.049423, 0.756215},
         {4.530966, -0.387522, 0.228863, 2.415418, -1.799217},
@@ -203,6 +220,8 @@ void trained_mlp_model(MLP* mlp) {
         {-5.436245, -0.334825, 0.278600, 1.523835, 3.057570},
         {-0.339902, 4.057984, -0.080821, -0.298409, -1.539995}
     };
+
+    // Pesos da camada de saída obtidos no treinamento
     float output_layer_weights[mlp->output_layer_length][mlp->hidden_layer_length+1] = {{-1.278173, 2.497450, -0.980342, -1.152672, -0.523618, 2.293101, -1.104998, -1.021778, 2.461326, 1.786587, -1.164977}};
 
     mlp->hidden_layer_weights = (float**)malloc(mlp->hidden_layer_length * sizeof(float*));

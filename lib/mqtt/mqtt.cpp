@@ -1,15 +1,15 @@
 #include "mqtt.hpp"
 
-const char *MQTT_BROKER = "192.168.62.3";       // IP do broker Mosquitto
-const int MQTT_PORT = 1883;
-const char *MQTT_USER = "LUCAS";                // Usuário MQTT
-const char *MQTT_PASS = "3301";                 // Senha MQTT
+const char *MQTT_BROKER = "000.000.000.000";    // IP do broker Mosquitto
+const int MQTT_PORT = 1883;                     // Porta do broker
+const char *MQTT_USER = "--";                   // Usuário MQTT
+const char *MQTT_PASS = "--";                   // Senha MQTT
 
 const char *MQTT_CLIENT_ID = "esp32_control";
 const char *MQTT_TOPIC_SUB = "/control";        // Tópico de controle
 
-const char* WIFI_SSID = "FSOnlineFibra-489B40";
-const char* WIFI_PASSWORD = "10072001";
+const char* WIFI_SSID = "--";
+const char* WIFI_PASSWORD = "--";
 
 
 WiFiClient espClient;
